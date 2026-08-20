@@ -49,10 +49,32 @@ export async function GET() {
   return NextResponse.json(await getPayload());
 }
 
+const knownActions = new Set([
+  "createGoal",
+  "updateGoal",
+  "deleteGoal",
+  "createMilestone",
+  "updateMilestone",
+  "deleteMilestone",
+  "reorderMilestones",
+  "createProgressLog",
+  "updateProgressLog",
+  "deleteProgressLog",
+  "deleteAttachment",
+  "createResource",
+  "updateResource",
+  "deleteResource",
+  "deleteTag"
+]);
+
 export async function POST(request: Request) {
   const body = await request.json();
   const action = String(body.action ?? "");
   const data = body.data ?? {};
+
+  if (!knownActions.has(action)) {
+    return NextResponse.json({ error: `Unknown action: "${action}"` }, { status: 400 });
+  }
 
   try {
     if (action === "createGoal") {

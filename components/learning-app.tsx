@@ -187,6 +187,10 @@ function tagString(tags: Tag[]) {
   return tags.map((tag) => tag.name).join(", ");
 }
 
+function confirmAction(message: string) {
+  return window.confirm(message);
+}
+
 function matchesGoal(goal: Goal, query: string, filter: string) {
   const haystack = [
     goal.title,
@@ -465,6 +469,13 @@ function GoalWorkspace({ goal, mutate, onDeleteGoal }: { goal: Goal; mutate: (ac
               <DateField value={toDateInput(goal.startDate)} onChange={(value) => mutate("updateGoal", { ...goal, startDate: value, targetDate: toDateInput(goal.targetDate), tags: tagString(goal.tags) }, "Start date updated")} />
               <DateField value={toDateInput(goal.targetDate)} onChange={(value) => mutate("updateGoal", { ...goal, startDate: toDateInput(goal.startDate), targetDate: value, tags: tagString(goal.tags) }, "Target date updated")} />
             </div>
+            <button
+              onClick={() => confirmAction(`Delete goal "${goal.title}"? This removes all of its milestones, progress updates, and resources. This cannot be undone.`) && onDeleteGoal(goal.id)}
+              aria-label={`Delete goal ${goal.title}`}
+              className="flex h-9 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 text-sm font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-400 dark:hover:bg-rose-500/10"
+            >
+              <Trash2 size={14} /> Delete Goal
+            </button>
           </div>
         </div>
       </div>
@@ -488,7 +499,7 @@ function GoalWorkspace({ goal, mutate, onDeleteGoal }: { goal: Goal; mutate: (ac
                         <span>{formatDate(milestone.targetDate)}</span>
                       </div>
                     </button>
-                    <button onClick={() => mutate("deleteMilestone", { id: milestone.id }, "Milestone deleted")} className="text-slate-400 hover:text-rose-500"><Trash2 size={15} /></button>
+                    <button onClick={() => confirmAction(`Delete milestone "${milestone.title}"? This cannot be undone.`) && mutate("deleteMilestone", { id: milestone.id }, "Milestone deleted")} aria-label={`Delete milestone ${milestone.title}`} className="text-slate-400 hover:text-rose-500"><Trash2 size={15} /></button>
                   </div>
                 </div>
               ))}
@@ -504,7 +515,7 @@ function GoalWorkspace({ goal, mutate, onDeleteGoal }: { goal: Goal; mutate: (ac
                     <div className="truncate text-sm font-medium">{resource.title}</div>
                     <div className="truncate text-xs text-slate-500">{resource.type} · {resource.url}</div>
                   </button>
-                  <button onClick={() => mutate("deleteResource", { id: resource.id }, "Resource deleted")} className="text-slate-400 hover:text-rose-500"><Trash2 size={15} /></button>
+                  <button onClick={() => confirmAction(`Delete resource "${resource.title}"? This cannot be undone.`) && mutate("deleteResource", { id: resource.id }, "Resource deleted")} aria-label={`Delete resource ${resource.title}`} className="text-slate-400 hover:text-rose-500"><Trash2 size={15} /></button>
                 </div>
               ))}
             </div>
@@ -539,7 +550,7 @@ function TimelineItems({ logs, onEdit, mutate }: { logs: ProgressLog[]; onEdit: 
               </div>
               <button onClick={() => onEdit(log)} className="mt-1 text-left text-lg font-semibold">{log.title}</button>
             </div>
-            <button onClick={() => mutate("deleteProgressLog", { id: log.id }, "Progress log deleted")} className="text-slate-400 hover:text-rose-500"><Trash2 size={16} /></button>
+            <button onClick={() => confirmAction(`Delete progress update "${log.title}"? This cannot be undone.`) && mutate("deleteProgressLog", { id: log.id }, "Progress log deleted")} aria-label={`Delete progress update ${log.title}`} className="text-slate-400 hover:text-rose-500"><Trash2 size={16} /></button>
           </div>
           <MarkdownLite value={log.content} />
           <DetailGrid log={log} />
@@ -559,7 +570,7 @@ function TimelineItems({ logs, onEdit, mutate }: { logs: ProgressLog[]; onEdit: 
                   )}
                   <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
                     <span className="truncate">{attachment.fileName}</span>
-                    <button onClick={() => mutate("deleteAttachment", { id: attachment.id }, "Attachment removed")}><Trash2 size={13} /></button>
+                    <button onClick={() => confirmAction(`Delete attachment "${attachment.fileName}"? This cannot be undone.`) && mutate("deleteAttachment", { id: attachment.id }, "Attachment removed")} aria-label={`Delete attachment ${attachment.fileName}`}><Trash2 size={13} /></button>
                   </div>
                 </div>
               ))}
@@ -650,7 +661,7 @@ function TagsView({ tags, mutate }: { tags: Tag[]; mutate: (action: string, payl
         {tags.map((tag) => (
           <span key={tag.id} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]">
             {tag.name}
-            <button onClick={() => mutate("deleteTag", { id: tag.id }, "Tag deleted")} className="text-slate-400 hover:text-rose-500"><X size={14} /></button>
+            <button onClick={() => confirmAction(`Delete tag "${tag.name}"? This removes it from every goal, milestone, and progress update.`) && mutate("deleteTag", { id: tag.id }, "Tag deleted")} aria-label={`Delete tag ${tag.name}`} className="text-slate-400 hover:text-rose-500"><X size={14} /></button>
           </span>
         ))}
       </div>

@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ON_HOLD
+  PLANNED
+}
+
+enum MilestoneStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ResourceType {
+  WEBSITE
+  GITHUB
+  YOUTUBE
+  DATASHEET
+  PDF
+  DOCUMENTATION
+  COURSE
+  BOOK
+  NOTES
+  OTHER
+}
+
+model Goal {
+  id          String        @id @default(cuid())
+  title       String
+  description String        @default("")
+  status      GoalStatus    @default(ACTIVE)
+  startDate   DateTime?
+  targetDate  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  milestones  Milestone[]
+  progressLog ProgressLog[]
+  resources   Resource[]
+  tags        Tag[]         @relation("GoalTags")
+}
+
+model Milestone {
+  id          String          @id @default(cuid())
+  goalId      String
+  title       String
+  description String          @default("")
+  status      MilestoneStatus @default(TODO)
+  priority    Priority        @default(MEDIUM)
+  order       Int             @default(0)
+  targetDate  DateTime?
+  notes       String          @default("")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  goal        Goal            @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  progressLog ProgressLog[]
+  resources   Resource[]
+  tags        Tag[]           @relation("MilestoneTags")
+}
+
+model ProgressLog {
+  id              String       @id @default(cuid())
+  goalId          String
+  milestoneId     String?
+  title           String
+  content         String       @default("")
+  date            DateTime
+  conceptsLearned String       @default("")
+  skillsDeveloped String       @default("")
+  problems        String       @default("")
+  solutions       String       @default("")
+  nextStep        String       @default("")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  goal            Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  milestone       Milestone?   @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  attachments     Attachment[]
+  tags            Tag[]        @relation("ProgressLogTags")
+}
+
+model Attachment {
+  id            String      @id @default(cuid())
+  progressLogId String
+  fileName      String
+  fileUrl       String
+  fileType      String
+  createdAt     DateTime    @default(now())
+  progressLog   ProgressLog @relation(fields: [progressLogId], references: [id], onDelete: Cascade)
+}
+
+model Resource {
+  id          String       @id @default(cuid())
+  goalId      String
+  milestoneId String?
+  title       String
+  url         String
+  type        ResourceType @default(OTHER)
+  description String       @default("")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  goal        Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  milestone   Milestone?   @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+}
+
+model Tag {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  createdAt    DateTime      @default(now())
+  goals        Goal[]        @relation("GoalTags")
+  milestones   Milestone[]   @relation("MilestoneTags")
+  progressLogs ProgressLog[] @relation("ProgressLogTags")
+}

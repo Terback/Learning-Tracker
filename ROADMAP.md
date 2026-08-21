@@ -98,7 +98,9 @@ Done:
 - `updateProgressLog`/`updateResource` no longer allow reassigning a record to a different `goalId` from the client payload, closing a latent cross-goal (and now cross-user) data-move gap.
 - Old demo/seed data (unowned) was cleared before adding the required `userId` columns; `scripts/seed.ts` now requires a `SEED_USER_ID` env var and will not run without one.
 - Settings view updated with a working Log out control; `learning-app.tsx` redirects to `/login` on a 401 from the API.
-- `prisma validate`, `tsc --noEmit`, and `npm run build` all pass.
+- `UserProfile` model added (`userId`, `displayName`, timestamps only — no auth data duplicated). Signup now collects a Display Name and creates the profile row using the `userId` from Supabase's own signup response, never a client-supplied value. Existing accounts created before this (i.e. the original admin account) gracefully have no profile row until one is set from Settings — `getPayload` returns `profile.displayName: null` and the UI falls back to showing the email instead of crashing or requiring manual DB edits.
+- Header now shows a compact account identity area (initials avatar + display name, falling back to email) with a click-open menu (display name, email, Settings, Log out). Settings gained an editable Display Name / read-only Email section that upserts via a new `updateProfile` action, always scoped server-side to the authenticated user's own `userId`.
+- `prisma validate`, `prisma generate`, `tsc --noEmit`, and `npm run build` all pass.
 
 Done (verified manually):
 

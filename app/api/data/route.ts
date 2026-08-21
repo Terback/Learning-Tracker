@@ -60,13 +60,14 @@ async function resolveAttachmentUrls<T extends { fileUrl: string | null; filePat
   }));
 }
 
-async function getPayload(userId: string, supabase: SupabaseClient) {
+async function getPayload(userId: string, email: string, supabase: SupabaseClient) {
   const goals = await prisma.goal.findMany({
     where: { userId },
     include: includeAll,
     orderBy: { updatedAt: "desc" }
   });
   const tags = await prisma.tag.findMany({ where: { userId }, orderBy: { name: "asc" } });
+  const profileRow = await prisma.userProfile.findUnique({ where: { userId } });
 
   const goalsWithUrls = await Promise.all(
     goals.map(async (goal) => ({
@@ -80,7 +81,11 @@ async function getPayload(userId: string, supabase: SupabaseClient) {
     }))
   );
 
-  return { goals: goalsWithUrls, tags };
+  return {
+    goals: goalsWithUrls,
+    tags,
+    profile: { displayName: profileRow?.displayName ?? null, email }
+  };
 }
 
 async function goalOwnedBy(userId: string, goalId: string) {
@@ -102,7 +107,7 @@ async function removeStorageObjects(supabase: SupabaseClient, paths: string[]) {
 export async function GET() {
   const { supabase, user } = await getAuthedSupabase();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  return NextResponse.json(await getPayload(user.id, supabase));
+  return NextResponse.json(await getPayload(user.id, user.email ?? "", supabase));
 }
 
 const knownActions = new Set([
@@ -120,7 +125,8 @@ const knownActions = new Set([
   "createResource",
   "updateResource",
   "deleteResource",
-  "deleteTag"
+  "deleteTag",
+  "updateProfile"
 ]);
 
 export async function POST(request: Request) {
@@ -262,7 +268,7 @@ export async function POST(request: Request) {
           tags: { connectOrCreate: await getTagConnections(userId, normalizeList(data.tags)) }
         }
       });
-      return NextResponse.json({ ...(await getPayload(userId, supabase)), createdId: log.id });
+      return NextResponse.json({ ...(await getPayload(userId, user.email ?? "", supabase)), createdId: log.id });
     }
 
     if (action === "updateProgressLog") {
@@ -365,7 +371,19 @@ export async function POST(request: Request) {
       if (deleted.count === 0) return NextResponse.json({ error: "Tag not found." }, { status: 404 });
     }
 
-    return NextResponse.json(await getPayload(userId, supabase));
+    if (action === "updateProfile") {
+      const displayName = String(data.displayName ?? "").trim();
+      if (!displayName) {
+        return NextResponse.json({ error: "Display name is required." }, { status: 400 });
+      }
+      await prisma.userProfile.upsert({
+        where: { userId },
+        update: { displayName },
+        create: { userId, displayName }
+      });
+    }
+
+    return NextResponse.json(await getPayload(userId, user.email ?? "", supabase));
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return NextResponse.json({ error: error.message }, { status: 400 });

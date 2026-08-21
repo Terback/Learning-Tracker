@@ -136,3 +136,12 @@ model Tag {
   @@unique([userId, name])
   @@index([userId])
 }
+
+// One row per Supabase Auth user (userId = auth.users.id). Not a Prisma relation, same as
+// Goal.userId/Tag.userId, since auth.users lives outside Prisma's schema.
+model UserProfile {
+  userId      String   @id
+  displayName String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

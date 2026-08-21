@@ -7,6 +7,7 @@ import { BookOpen } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -28,7 +29,7 @@ export default function SignupPage() {
     const response = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, displayName })
     });
     const result = await response.json();
     setLoading(false);
@@ -61,11 +62,22 @@ export default function SignupPage() {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <label className="block">
+            <span className="mb-1 block text-xs font-medium uppercase text-slate-400">Display Name</span>
+            <input
+              type="text"
+              required
+              autoFocus
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="Terrence Dai"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 dark:border-white/10 dark:bg-black/20"
+            />
+          </label>
+          <label className="block">
             <span className="mb-1 block text-xs font-medium uppercase text-slate-400">Email</span>
             <input
               type="email"
               required
-              autoFocus
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 dark:border-white/10 dark:bg-black/20"

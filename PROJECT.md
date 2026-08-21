@@ -96,6 +96,7 @@ The current Prisma schema contains these models:
 - `Attachment`
 - `Resource`
 - `Tag`
+- `UserProfile` (one row per Supabase Auth user; `userId` + `displayName` only — no passwords or other auth data duplicated here)
 
 Current enums include:
 

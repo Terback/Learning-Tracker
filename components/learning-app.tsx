@@ -18,6 +18,7 @@ import {
   GripVertical,
   LayoutDashboard,
   Link as LinkIcon,
+  LogOut,
   Moon,
   Paperclip,
   Plus,
@@ -102,7 +103,8 @@ type Goal = {
   tags: Tag[];
 };
 
-type Data = { goals: Goal[]; tags: Tag[] };
+type Profile = { displayName: string | null; email: string };
+type Data = { goals: Goal[]; tags: Tag[]; profile: Profile };
 type View = "dashboard" | "goals" | "timeline" | "resources" | "tags" | "settings";
 
 const statusLabels: Record<Status, string> = {
@@ -193,6 +195,21 @@ function confirmAction(message: string) {
   return window.confirm(message);
 }
 
+function initialsFrom(source: string) {
+  const normalized = source.includes("@") ? source.split("@")[0].replace(/[._-]+/g, " ") : source;
+  const parts = normalized.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return (parts[0].slice(0, 1) + parts[parts.length - 1].slice(0, 1)).toUpperCase();
+}
+
+async function performLogout(router: ReturnType<typeof useRouter>) {
+  const supabase = getSupabaseBrowserClient();
+  await supabase.auth.signOut();
+  router.replace("/login");
+  router.refresh();
+}
+
 function matchesGoal(goal: Goal, query: string, filter: string) {
   const haystack = [
     goal.title,
@@ -216,7 +233,7 @@ function matchesGoal(goal: Goal, query: string, filter: string) {
 }
 
 export function LearningApp() {
-  const [data, setData] = useState<Data>({ goals: [], tags: [] });
+  const [data, setData] = useState<Data>({ goals: [], tags: [], profile: { displayName: null, email: "" } });
   const [selectedId, setSelectedId] = useState<string>("");
   const [view, setView] = useState<View>("dashboard");
   const [query, setQuery] = useState("");
@@ -262,7 +279,7 @@ export function LearningApp() {
     }
     const next = await response.json();
     if (!response.ok) throw new Error(next.error || "Unable to save changes.");
-    setData({ goals: next.goals, tags: next.tags });
+    setData({ goals: next.goals, tags: next.tags, profile: next.profile });
     if (next.createdId) setSelectedId((payload as { goalId?: string }).goalId || selectedId);
     setToast(message);
     window.setTimeout(() => setToast(""), 2600);
@@ -345,6 +362,7 @@ export function LearningApp() {
               <button aria-label="Toggle dark mode" onClick={() => setDark((value) => !value)} className="grid size-10 place-items-center rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-white/5">
                 <Moon size={16} />
               </button>
+              <AccountMenu profile={data.profile} onOpenSettings={() => setView("settings")} />
             </div>
           </div>
         </header>
@@ -355,7 +373,7 @@ export function LearningApp() {
           {view === "timeline" && <TimelineView logs={logs} goals={data.goals} mutate={mutate} />}
           {view === "resources" && <ResourcesView resources={resources} goals={data.goals} mutate={mutate} />}
           {view === "tags" && <TagsView tags={data.tags} mutate={mutate} />}
-          {view === "settings" && <SettingsView />}
+          {view === "settings" && <SettingsView profile={data.profile} mutate={mutate} />}
         </div>
       </main>
 
@@ -390,6 +408,53 @@ function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; la
       {icon}
       {label}
     </button>
+  );
+}
+
+function AccountMenu({ profile, onOpenSettings }: { profile: Profile; onOpenSettings: () => void }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const name = profile.displayName || profile.email;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((value) => !value)}
+        className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 pr-3 text-sm font-medium dark:border-white/10 dark:bg-white/5"
+      >
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-slate-950 text-xs font-semibold text-white dark:bg-white dark:text-slate-950">
+          {initialsFrom(name)}
+        </span>
+        <span className="max-w-[9rem] truncate">{name}</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-30 mt-2 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-soft dark:border-white/10 dark:bg-[#151719]">
+            <div className="px-2 py-1.5">
+              <div className="truncate text-sm font-medium">{name}</div>
+              <div className="truncate text-xs text-slate-500">{profile.email}</div>
+            </div>
+            <div className="my-1 border-t border-slate-100 dark:border-white/10" />
+            <button
+              onClick={() => {
+                setOpen(false);
+                onOpenSettings();
+              }}
+              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5"
+            >
+              <Settings size={15} /> Settings
+            </button>
+            <button
+              onClick={() => performLogout(router)}
+              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-white/5"
+            >
+              <LogOut size={15} /> Log out
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -681,16 +746,25 @@ function TagsView({ tags, mutate }: { tags: Tag[]; mutate: (action: string, payl
   );
 }
 
-function SettingsView() {
+function SettingsView({ profile, mutate }: { profile: Profile; mutate: (action: string, payload: unknown, message: string) => Promise<any> }) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const [displayName, setDisplayName] = useState(profile.displayName ?? "");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   async function handleLogout() {
     setSigningOut(true);
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    router.replace("/login");
-    router.refresh();
+    await performLogout(router);
+  }
+
+  async function handleSaveProfile(event: FormEvent) {
+    event.preventDefault();
+    setSavingProfile(true);
+    try {
+      await mutate("updateProfile", { displayName }, "Profile updated");
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   return (
@@ -698,6 +772,27 @@ function SettingsView() {
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="mt-1 text-sm text-slate-500">Your data is stored in Supabase PostgreSQL through Prisma, scoped privately to your account.</p>
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
+        <div className="text-sm font-medium">Profile</div>
+        <form onSubmit={handleSaveProfile} className="mt-3 space-y-4">
+          <TextInput label="Display Name" value={displayName} onChange={setDisplayName} placeholder="Terrence Dai" />
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium uppercase text-slate-400">Email</span>
+            <input
+              value={profile.email}
+              disabled
+              className="h-10 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 outline-none dark:border-white/10 dark:bg-black/20"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={savingProfile}
+            className="flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-medium text-white disabled:opacity-60 dark:bg-white dark:text-slate-950"
+          >
+            {savingProfile ? "Saving..." : "Save"}
+          </button>
+        </form>
       </div>
       <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
         <div className="text-sm font-medium">Account</div>

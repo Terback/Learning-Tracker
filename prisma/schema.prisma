@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum GoalStatus {
@@ -41,6 +42,7 @@ enum ResourceType {
 
 model Goal {
   id          String        @id @default(cuid())
+  userId      String
   title       String
   description String        @default("")
   status      GoalStatus    @default(ACTIVE)
@@ -52,6 +54,8 @@ model Goal {
   progressLog ProgressLog[]
   resources   Resource[]
   tags        Tag[]         @relation("GoalTags")
+
+  @@index([userId])
 }
 
 model Milestone {
@@ -96,7 +100,11 @@ model Attachment {
   id            String      @id @default(cuid())
   progressLogId String
   fileName      String
-  fileUrl       String
+  // fileUrl: legacy local public/uploads path, set only on attachments created before the
+  // Supabase Storage migration. filePath: Supabase Storage object key, set on every attachment
+  // created after the migration. Exactly one of the two is populated per row.
+  fileUrl       String?
+  filePath      String?
   fileType      String
   createdAt     DateTime    @default(now())
   progressLog   ProgressLog @relation(fields: [progressLogId], references: [id], onDelete: Cascade)
@@ -118,9 +126,13 @@ model Resource {
 
 model Tag {
   id           String        @id @default(cuid())
-  name         String        @unique
+  userId       String
+  name         String
   createdAt    DateTime      @default(now())
   goals        Goal[]        @relation("GoalTags")
   milestones   Milestone[]   @relation("MilestoneTags")
   progressLogs ProgressLog[] @relation("ProgressLogTags")
+
+  @@unique([userId, name])
+  @@index([userId])
 }

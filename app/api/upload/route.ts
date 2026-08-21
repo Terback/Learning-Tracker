@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getAuthedSupabase } from "@/lib/supabase/server";
+import { ATTACHMENTS_BUCKET, buildAttachmentPath } from "@/lib/storage";
 
 const allowedTypes = new Set([
   "image/png",
@@ -13,6 +13,9 @@ const allowedTypes = new Set([
 ]);
 
 export async function POST(request: Request) {
+  const { supabase, user } = await getAuthedSupabase();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const form = await request.formData();
   const progressLogId = String(form.get("progressLogId") ?? "");
   const files = form.getAll("files").filter((file): file is File => file instanceof File);
@@ -21,8 +24,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing progress log or files." }, { status: 400 });
   }
 
-  const uploadDir = path.join(process.cwd(), "public", "uploads");
-  await mkdir(uploadDir, { recursive: true });
+  const owned = await prisma.progressLog.findFirst({
+    where: { id: progressLogId, goal: { userId: user.id } },
+    select: { id: true }
+  });
+  if (!owned) {
+    return NextResponse.json({ error: "Progress update not found." }, { status: 404 });
+  }
 
   const attachments = [];
   for (const file of files) {
@@ -30,18 +38,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `${file.name} is not a supported file type.` }, { status: 400 });
     }
 
+    const objectPath = buildAttachmentPath(user.id, progressLogId, file.name);
     const bytes = await file.arrayBuffer();
-    const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "-");
-    const fileName = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-    const filePath = path.join(uploadDir, fileName);
-    await writeFile(filePath, Buffer.from(bytes));
+    const { error: uploadError } = await supabase.storage
+      .from(ATTACHMENTS_BUCKET)
+      .upload(objectPath, Buffer.from(bytes), { contentType: file.type || "application/octet-stream" });
+
+    if (uploadError) {
+      return NextResponse.json({ error: `Failed to upload ${file.name}: ${uploadError.message}` }, { status: 500 });
+    }
 
     attachments.push(
       await prisma.attachment.create({
         data: {
           progressLogId,
           fileName: file.name,
-          fileUrl: `/uploads/${fileName}`,
+          filePath: objectPath,
           fileType: file.type || "application/octet-stream"
         }
       })

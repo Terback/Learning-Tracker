@@ -3,15 +3,23 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  await prisma.attachment.deleteMany();
-  await prisma.progressLog.deleteMany();
-  await prisma.resource.deleteMany();
-  await prisma.milestone.deleteMany();
-  await prisma.goal.deleteMany();
-  await prisma.tag.deleteMany();
+  const userId = process.env.SEED_USER_ID;
+  if (!userId) {
+    throw new Error(
+      "SEED_USER_ID is required. Set it to the Supabase auth user id (auth.users.id) this seed data should belong to."
+    );
+  }
+
+  await prisma.attachment.deleteMany({ where: { progressLog: { goal: { userId } } } });
+  await prisma.progressLog.deleteMany({ where: { goal: { userId } } });
+  await prisma.resource.deleteMany({ where: { goal: { userId } } });
+  await prisma.milestone.deleteMany({ where: { goal: { userId } } });
+  await prisma.goal.deleteMany({ where: { userId } });
+  await prisma.tag.deleteMany({ where: { userId } });
 
   const goal = await prisma.goal.create({
     data: {
+      userId,
       title: "Embedded / Engineering Learning",
       description:
         "A long-term roadmap for embedded systems, electronics workflow, AI hardware, software apps, and hardware-connected products.",
@@ -20,9 +28,9 @@ async function main() {
       targetDate: new Date("2027-02-28T12:00:00"),
       tags: {
         connectOrCreate: [
-          { where: { name: "ESP32" }, create: { name: "ESP32" } },
-          { where: { name: "Hardware" }, create: { name: "Hardware" } },
-          { where: { name: "AI" }, create: { name: "AI" } }
+          { where: { userId_name: { userId, name: "ESP32" } }, create: { userId, name: "ESP32" } },
+          { where: { userId_name: { userId, name: "Hardware" } }, create: { userId, name: "Hardware" } },
+          { where: { userId_name: { userId, name: "AI" } }, create: { userId, name: "AI" } }
         ]
       }
     }
@@ -76,8 +84,8 @@ async function main() {
       nextStep: "Document a reusable ESP32 MQTT template.",
       tags: {
         connectOrCreate: [
-          { where: { name: "MQTT" }, create: { name: "MQTT" } },
-          { where: { name: "IoT" }, create: { name: "IoT" } }
+          { where: { userId_name: { userId, name: "MQTT" } }, create: { userId, name: "MQTT" } },
+          { where: { userId_name: { userId, name: "IoT" } }, create: { userId, name: "IoT" } }
         ]
       }
     }
@@ -95,8 +103,8 @@ async function main() {
       nextStep: "Capture screenshots and compare YOLO with MediaPipe for hardware-assisted demos.",
       tags: {
         connectOrCreate: [
-          { where: { name: "Computer Vision" }, create: { name: "Computer Vision" } },
-          { where: { name: "Python" }, create: { name: "Python" } }
+          { where: { userId_name: { userId, name: "Computer Vision" } }, create: { userId, name: "Computer Vision" } },
+          { where: { userId_name: { userId, name: "Python" } }, create: { userId, name: "Python" } }
         ]
       }
     }

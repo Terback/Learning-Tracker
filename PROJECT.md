@@ -152,18 +152,25 @@ The current implementation uses:
 
 This local architecture is intended for prototyping and product validation.
 
-### Planned Production Architecture
+### Current Production Architecture (in progress)
 
-The planned production architecture is:
+The application is migrating to a small multi-user-capable production architecture:
 
 - Next.js
 - TypeScript
 - Tailwind CSS
-- Supabase PostgreSQL
-- Supabase Storage for screenshots, images, PDFs, Markdown, and text files
-- Vercel deployment
+- Supabase Auth for email/password login and self-service signup, gated by a server-side email allow-list (`ALLOWED_SIGNUP_EMAILS`) so only pre-approved people can create an account
+- Prisma against Supabase PostgreSQL (database migration complete)
+- Supabase Storage for screenshots, images, PDFs, Markdown, and text files (all attachments; migration complete)
+- Vercel deployment (not yet deployed)
 
-SQLite and local uploads should be treated as temporary v0.1 implementation details.
+`Goal` and `Tag` records carry a `userId` (the Supabase Auth user id). Every other model (`Milestone`, `ProgressLog`, `Attachment`, `Resource`) inherits ownership through its parent `Goal`. All API routes verify the authenticated user owns a record (or its parent Goal) before reading, updating, deleting, or creating child records — the frontend never determines access, only the API layer does.
+
+Attachments uploaded before the Supabase Storage migration keep working from local `public/uploads` (`Attachment.fileUrl`); every attachment uploaded after the migration is stored in a private Supabase Storage bucket under `userId/progressLogId/filename` (`Attachment.filePath`) and served through short-lived signed URLs generated per request. Storage access is enforced by Supabase Storage RLS policies scoped to the requesting user's own auth id, not by a service-role key.
+
+This remains a single-tenant-per-user model: no organizations, teams, roles, or shared data between accounts. It is designed to support roughly 20-30 independent users, each with fully private learning records, not collaboration between them.
+
+SQLite (`prisma/dev.db`) is no longer the active datasource and is kept only as a rollback reference. Local `public/uploads` is still the active upload path pending the Supabase Storage migration.
 
 ## V1 Scope
 

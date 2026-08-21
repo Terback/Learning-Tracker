@@ -57,38 +57,79 @@ Deliverables:
 
 ## Supabase Database Migration
 
-Status: Planned
+Status: Implemented
 
 Purpose:
 
 - Move persistent data from local SQLite to Supabase PostgreSQL.
-- Keep Prisma or choose a Supabase-native data access strategy after evaluating tradeoffs.
+- Keep Prisma as the data access layer (no Supabase-native client needed for CRUD).
 - Preserve the existing product hierarchy and editable frontend workflows.
 
-Expected work:
+Done:
 
-- Update database provider and connection configuration.
-- Create migrations for Goal, Milestone, ProgressLog, Attachment, Resource, Tag, and join tables.
-- Verify cascade behavior and nullable milestone relationships.
-- Add production-safe environment variable documentation.
-- Migrate or recreate seed/demo data as needed.
+- `prisma/schema.prisma` datasource switched from `sqlite` to `postgresql`, with a separate `directUrl` for migrations alongside the pooled `url` used at runtime.
+- `.env.example` documents the two required connection strings (pooled `DATABASE_URL`, direct `DIRECT_URL`) and how to find them in the Supabase dashboard, without exposing real credentials.
+- Schema pushed to the live Supabase database with `prisma db push`.
+- Seed data populated in Supabase via the existing seed script, unchanged.
+- Create/read/update/delete verified directly against live Postgres, including cascade-delete (Goal to Milestone/ProgressLog/Attachment/Resource) and set-null-on-delete (Milestone to ProgressLog/Resource) behavior.
+- `prisma validate`, `prisma generate`, and `tsc --noEmit` all pass against the live schema.
+
+Local SQLite (`prisma/dev.db`) is left in place as a rollback reference; it is no longer the active datasource.
+
+Not yet done: per-user data ownership (tracked separately, see below) and application-level auth — the database itself currently has no user scoping.
+
+## Authentication And Per-User Data Ownership
+
+Status: In progress
+
+Purpose:
+
+- Support a small number (roughly 20-30) of independent users, each with fully private learning records.
+- No organizations, teams, roles, admin dashboards, or collaboration features.
+
+Done:
+
+- `@supabase/ssr` and `@supabase/supabase-js` added; browser client (`lib/supabase/browser.ts`) and server client (`lib/supabase/server.ts`) created.
+- `middleware.ts` refreshes the Supabase session on every request and redirects unauthenticated requests to `/login` (API routes are excluded and enforce auth independently).
+- `/login` page: email/password sign-in.
+- `/signup` page and `POST /api/auth/signup`: self-service account creation, gated by a server-side `ALLOWED_SIGNUP_EMAILS` allow-list checked before `supabase.auth.signUp()` is ever called (no service-role key needed). Requests for an email not on the list are rejected with 403 before touching Supabase Auth. Superseded the original "admin creates every account in the dashboard" approach now that the product needs to onboard ~20-30 people without editing the dashboard for each one.
+- `Goal.userId` and `Tag.userId` added to the schema; `Tag`'s uniqueness is now per-user (`userId + name`) instead of global. Milestones, ProgressLogs, Attachments, and Resources inherit ownership through their parent Goal.
+- Every `/api/data` action (and the upload route) checks the authenticated user first and returns 401 if absent, then verifies the user owns the record (or its parent Goal) before reading, updating, deleting, or creating child records. Frontend-supplied IDs are never trusted directly.
+- `updateProgressLog`/`updateResource` no longer allow reassigning a record to a different `goalId` from the client payload, closing a latent cross-goal (and now cross-user) data-move gap.
+- Old demo/seed data (unowned) was cleared before adding the required `userId` columns; `scripts/seed.ts` now requires a `SEED_USER_ID` env var and will not run without one.
+- Settings view updated with a working Log out control; `learning-app.tsx` redirects to `/login` on a 401 from the API.
+- `prisma validate`, `tsc --noEmit`, and `npm run build` all pass.
+
+Done (verified manually):
+
+- Real account created in the Supabase dashboard; login, logout, and per-user data isolation confirmed working end-to-end in the browser.
+
+Still pending (blocked on Supabase dashboard configuration and local `.env`, see conversation):
+
+- Populating the real `ALLOWED_SIGNUP_EMAILS` list in `.env` with the actual people being onboarded.
+- Deciding whether to disable "Confirm email" in Supabase (Authentication -> Sign In / Providers -> Email) so self-registered accounts can log in immediately, since no email-confirmation-link handling is built. The signup page degrades gracefully either way (shows a "check your email" message if confirmation is required), but confirmation email deliverability depends on Supabase's default email sending unless SMTP is configured.
+- Manual end-to-end verification of the signup flow in the browser.
 
 ## Supabase Storage Migration
 
-Status: Planned
+Status: Implemented
 
 Purpose:
 
 - Move attachments from local `public/uploads` storage to Supabase Storage.
 - Support browser-based production uploads for screenshots, images, PDFs, Markdown, and text files.
 
-Expected work:
+Done:
 
-- Create storage bucket strategy.
-- Replace local upload route behavior with Supabase Storage uploads.
-- Store public or signed file URLs in `Attachment`.
-- Add delete behavior that removes both database records and storage objects.
-- Confirm image previews and downloadable file links still work in the timeline.
+- `Attachment` schema extended additively: `fileUrl` (legacy local path) made optional, `filePath` (Supabase Storage object key) added.
+- `/api/upload` uploads new files to a private Supabase Storage bucket (`attachments`) at `userId/progressLogId/unique-filename`, using the authenticated request's own Supabase client (no service-role key), and records the object key in `Attachment.filePath`.
+- `/api/data` resolves each attachment to a working `fileUrl` per request: legacy rows (`filePath` empty) serve their original local path unchanged; new rows (`filePath` set) get a fresh signed URL (1 hour expiry) generated server-side. The frontend's `attachment.fileUrl` contract is unchanged either way.
+- Attachment deletion removes the Supabase Storage object alongside the database row. Deleting a Goal or a Progress Update (both of which cascade-delete their Attachment rows in Postgres) also removes every associated Storage object first, so cascading deletes can no longer orphan Storage files.
+- `attachments` Storage bucket created (private) with RLS policies restricting every operation to the caller's own `auth.uid()` folder prefix; verified directly against `pg_policies`.
+- No frontend changes: drag-and-drop, clipboard paste, browse, and preview/download all continue to work unmodified, since the API still returns a plain `fileUrl` string.
+- End-to-end upload/preview/delete verified working in the browser against live Supabase Storage.
+
+Legacy attachment migration: no longer needed. The 5 pre-migration attachments found during this work were confirmed to be test/exploratory data, deleted during manual cascade-delete testing before migration ran. A one-time `migrateLegacyAttachments` action and Settings button were built to migrate them, then removed once confirmed unnecessary (they migrated 0 rows, since nothing remained to migrate). No attachments currently reference the legacy `fileUrl` local-storage path; all new attachments go through Supabase Storage.
 
 ## Frontend CRUD Refinement
 

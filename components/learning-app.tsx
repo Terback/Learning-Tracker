@@ -2,6 +2,8 @@
 
 import type React from "react";
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   Archive,
   BookOpen,
@@ -226,8 +228,14 @@ export function LearningApp() {
   const [quickModal, setQuickModal] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
 
+  const router = useRouter();
+
   async function load() {
     const response = await fetch("/api/data", { cache: "no-store" });
+    if (response.status === 401) {
+      router.replace("/login");
+      return;
+    }
     const payload = await response.json();
     setData(payload);
     setSelectedId((current) => current || payload.goals[0]?.id || "");
@@ -248,6 +256,10 @@ export function LearningApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, data: payload })
     });
+    if (response.status === 401) {
+      router.replace("/login");
+      throw new Error("Your session expired. Please log in again.");
+    }
     const next = await response.json();
     if (!response.ok) throw new Error(next.error || "Unable to save changes.");
     setData({ goals: next.goals, tags: next.tags });
@@ -670,14 +682,33 @@ function TagsView({ tags, mutate }: { tags: Tag[]; mutate: (action: string, payl
 }
 
 function SettingsView() {
+  const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleLogout() {
+    setSigningOut(true);
+    const supabase = getSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
+
   return (
     <section className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="mt-1 text-sm text-slate-500">This V1 stores data in SQLite through Prisma and keeps uploaded files in `public/uploads`.</p>
+        <p className="mt-1 text-sm text-slate-500">Your data is stored in Supabase PostgreSQL through Prisma, scoped privately to your account.</p>
       </div>
-      <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-600 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
-        PostgreSQL migration later is intentionally straightforward: change `DATABASE_URL`, update the Prisma datasource provider, and run migrations.
+      <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
+        <div className="text-sm font-medium">Account</div>
+        <p className="mt-1 text-sm text-slate-500">Sign out of your Learning Tracker workspace on this device.</p>
+        <button
+          onClick={handleLogout}
+          disabled={signingOut}
+          className="mt-4 flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-medium disabled:opacity-60 dark:border-white/10"
+        >
+          {signingOut ? "Signing out..." : "Log out"}
+        </button>
       </div>
     </section>
   );

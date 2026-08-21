@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { Prisma, GoalStatus, MilestoneStatus, Priority, ResourceType } from "@prisma/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/prisma";
+import { getAuthedSupabase } from "@/lib/supabase/server";
+import { ATTACHMENTS_BUCKET, SIGNED_URL_EXPIRES_IN } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +17,11 @@ const includeAll = {
   resources: { include: { milestone: true }, orderBy: { updatedAt: "desc" as const } }
 };
 
-async function getTagConnections(names: string[] = []) {
+async function getTagConnections(userId: string, names: string[] = []) {
   const cleanNames = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
   return cleanNames.map((name) => ({
-    where: { name },
-    create: { name }
+    where: { userId_name: { userId, name } },
+    create: { userId, name }
   }));
 }
 
@@ -36,17 +39,70 @@ function normalizeList(value: unknown) {
     .filter(Boolean);
 }
 
-async function getPayload() {
+// Attachments created before the Supabase Storage migration only have `fileUrl` (a local
+// public/uploads path) and serve as-is. Attachments created after only have `filePath` (a
+// Supabase Storage object key) and need a signed URL generated per request.
+async function resolveAttachmentUrls<T extends { fileUrl: string | null; filePath: string | null }>(
+  attachments: T[],
+  supabase: SupabaseClient
+) {
+  const paths = attachments.filter((a) => a.filePath).map((a) => a.filePath as string);
+  const signedUrlByPath = new Map<string, string>();
+  if (paths.length > 0) {
+    const { data } = await supabase.storage.from(ATTACHMENTS_BUCKET).createSignedUrls(paths, SIGNED_URL_EXPIRES_IN);
+    for (const entry of data ?? []) {
+      if (entry.signedUrl && entry.path) signedUrlByPath.set(entry.path, entry.signedUrl);
+    }
+  }
+  return attachments.map(({ fileUrl, filePath, ...rest }) => ({
+    ...rest,
+    fileUrl: (filePath ? signedUrlByPath.get(filePath) : fileUrl) || ""
+  }));
+}
+
+async function getPayload(userId: string, supabase: SupabaseClient) {
   const goals = await prisma.goal.findMany({
+    where: { userId },
     include: includeAll,
     orderBy: { updatedAt: "desc" }
   });
-  const tags = await prisma.tag.findMany({ orderBy: { name: "asc" } });
-  return { goals, tags };
+  const tags = await prisma.tag.findMany({ where: { userId }, orderBy: { name: "asc" } });
+
+  const goalsWithUrls = await Promise.all(
+    goals.map(async (goal) => ({
+      ...goal,
+      progressLog: await Promise.all(
+        goal.progressLog.map(async (log) => ({
+          ...log,
+          attachments: await resolveAttachmentUrls(log.attachments, supabase)
+        }))
+      )
+    }))
+  );
+
+  return { goals: goalsWithUrls, tags };
+}
+
+async function goalOwnedBy(userId: string, goalId: string) {
+  const goal = await prisma.goal.findFirst({ where: { id: goalId, userId }, select: { id: true } });
+  return Boolean(goal);
+}
+
+async function milestoneInGoal(goalId: string, milestoneId: string) {
+  const milestone = await prisma.milestone.findFirst({ where: { id: milestoneId, goalId }, select: { id: true } });
+  return Boolean(milestone);
+}
+
+async function removeStorageObjects(supabase: SupabaseClient, paths: string[]) {
+  if (paths.length === 0) return;
+  const { error } = await supabase.storage.from(ATTACHMENTS_BUCKET).remove(paths);
+  if (error) console.error("Failed to remove storage objects:", error.message);
 }
 
 export async function GET() {
-  return NextResponse.json(await getPayload());
+  const { supabase, user } = await getAuthedSupabase();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  return NextResponse.json(await getPayload(user.id, supabase));
 }
 
 const knownActions = new Set([
@@ -68,6 +124,10 @@ const knownActions = new Set([
 ]);
 
 export async function POST(request: Request) {
+  const { supabase, user } = await getAuthedSupabase();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
+
   const body = await request.json();
   const action = String(body.action ?? "");
   const data = body.data ?? {};
@@ -80,17 +140,21 @@ export async function POST(request: Request) {
     if (action === "createGoal") {
       await prisma.goal.create({
         data: {
+          userId,
           title: data.title || "Untitled goal",
           description: data.description || "",
           status: (data.status || "ACTIVE") as GoalStatus,
           startDate: parseDate(data.startDate),
           targetDate: parseDate(data.targetDate),
-          tags: { connectOrCreate: await getTagConnections(normalizeList(data.tags)) }
+          tags: { connectOrCreate: await getTagConnections(userId, normalizeList(data.tags)) }
         }
       });
     }
 
     if (action === "updateGoal") {
+      if (!(await goalOwnedBy(userId, data.id))) {
+        return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+      }
       await prisma.goal.update({
         where: { id: data.id },
         data: {
@@ -101,17 +165,29 @@ export async function POST(request: Request) {
           targetDate: parseDate(data.targetDate),
           tags: {
             set: [],
-            connectOrCreate: await getTagConnections(normalizeList(data.tags))
+            connectOrCreate: await getTagConnections(userId, normalizeList(data.tags))
           }
         }
       });
     }
 
     if (action === "deleteGoal") {
+      const existing = await prisma.goal.findFirst({
+        where: { id: data.id, userId },
+        select: { progressLog: { select: { attachments: { select: { filePath: true } } } } }
+      });
+      if (!existing) return NextResponse.json({ error: "Goal not found." }, { status: 404 });
       await prisma.goal.delete({ where: { id: data.id } });
+      const paths = existing.progressLog.flatMap((log) =>
+        log.attachments.map((a) => a.filePath).filter((p): p is string => Boolean(p))
+      );
+      await removeStorageObjects(supabase, paths);
     }
 
     if (action === "createMilestone") {
+      if (!(await goalOwnedBy(userId, data.goalId))) {
+        return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+      }
       const count = await prisma.milestone.count({ where: { goalId: data.goalId } });
       await prisma.milestone.create({
         data: {
@@ -123,12 +199,14 @@ export async function POST(request: Request) {
           order: count,
           targetDate: parseDate(data.targetDate),
           notes: data.notes || "",
-          tags: { connectOrCreate: await getTagConnections(normalizeList(data.tags)) }
+          tags: { connectOrCreate: await getTagConnections(userId, normalizeList(data.tags)) }
         }
       });
     }
 
     if (action === "updateMilestone") {
+      const milestone = await prisma.milestone.findFirst({ where: { id: data.id, goal: { userId } }, select: { id: true } });
+      if (!milestone) return NextResponse.json({ error: "Milestone not found." }, { status: 404 });
       await prisma.milestone.update({
         where: { id: data.id },
         data: {
@@ -140,24 +218,35 @@ export async function POST(request: Request) {
           notes: data.notes,
           tags: {
             set: [],
-            connectOrCreate: await getTagConnections(normalizeList(data.tags))
+            connectOrCreate: await getTagConnections(userId, normalizeList(data.tags))
           }
         }
       });
     }
 
     if (action === "deleteMilestone") {
-      await prisma.milestone.delete({ where: { id: data.id } });
+      const deleted = await prisma.milestone.deleteMany({ where: { id: data.id, goal: { userId } } });
+      if (deleted.count === 0) return NextResponse.json({ error: "Milestone not found." }, { status: 404 });
     }
 
     if (action === "reorderMilestones") {
       const ids = data.ids as string[];
+      const ownedCount = await prisma.milestone.count({ where: { id: { in: ids }, goal: { userId } } });
+      if (ownedCount !== ids.length) {
+        return NextResponse.json({ error: "One or more milestones not found." }, { status: 404 });
+      }
       await prisma.$transaction(
         ids.map((id, order) => prisma.milestone.update({ where: { id }, data: { order } }))
       );
     }
 
     if (action === "createProgressLog") {
+      if (!(await goalOwnedBy(userId, data.goalId))) {
+        return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+      }
+      if (data.milestoneId && !(await milestoneInGoal(data.goalId, data.milestoneId))) {
+        return NextResponse.json({ error: "Invalid milestone for this goal." }, { status: 400 });
+      }
       const log = await prisma.progressLog.create({
         data: {
           goalId: data.goalId,
@@ -170,17 +259,24 @@ export async function POST(request: Request) {
           problems: data.problems || "",
           solutions: data.solutions || "",
           nextStep: data.nextStep || "",
-          tags: { connectOrCreate: await getTagConnections(normalizeList(data.tags)) }
+          tags: { connectOrCreate: await getTagConnections(userId, normalizeList(data.tags)) }
         }
       });
-      return NextResponse.json({ ...(await getPayload()), createdId: log.id });
+      return NextResponse.json({ ...(await getPayload(userId, supabase)), createdId: log.id });
     }
 
     if (action === "updateProgressLog") {
+      const existing = await prisma.progressLog.findFirst({
+        where: { id: data.id, goal: { userId } },
+        select: { goalId: true }
+      });
+      if (!existing) return NextResponse.json({ error: "Progress update not found." }, { status: 404 });
+      if (data.milestoneId && !(await milestoneInGoal(existing.goalId, data.milestoneId))) {
+        return NextResponse.json({ error: "Invalid milestone for this goal." }, { status: 400 });
+      }
       await prisma.progressLog.update({
         where: { id: data.id },
         data: {
-          goalId: data.goalId,
           milestoneId: data.milestoneId || null,
           title: data.title,
           content: data.content,
@@ -192,21 +288,40 @@ export async function POST(request: Request) {
           nextStep: data.nextStep || "",
           tags: {
             set: [],
-            connectOrCreate: await getTagConnections(normalizeList(data.tags))
+            connectOrCreate: await getTagConnections(userId, normalizeList(data.tags))
           }
         }
       });
     }
 
     if (action === "deleteProgressLog") {
+      const existing = await prisma.progressLog.findFirst({
+        where: { id: data.id, goal: { userId } },
+        select: { attachments: { select: { filePath: true } } }
+      });
+      if (!existing) return NextResponse.json({ error: "Progress update not found." }, { status: 404 });
       await prisma.progressLog.delete({ where: { id: data.id } });
+      const paths = existing.attachments.map((a) => a.filePath).filter((p): p is string => Boolean(p));
+      await removeStorageObjects(supabase, paths);
     }
 
     if (action === "deleteAttachment") {
+      const existing = await prisma.attachment.findFirst({
+        where: { id: data.id, progressLog: { goal: { userId } } },
+        select: { filePath: true }
+      });
+      if (!existing) return NextResponse.json({ error: "Attachment not found." }, { status: 404 });
       await prisma.attachment.delete({ where: { id: data.id } });
+      if (existing.filePath) await removeStorageObjects(supabase, [existing.filePath]);
     }
 
     if (action === "createResource") {
+      if (!(await goalOwnedBy(userId, data.goalId))) {
+        return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+      }
+      if (data.milestoneId && !(await milestoneInGoal(data.goalId, data.milestoneId))) {
+        return NextResponse.json({ error: "Invalid milestone for this goal." }, { status: 400 });
+      }
       await prisma.resource.create({
         data: {
           goalId: data.goalId,
@@ -220,10 +335,17 @@ export async function POST(request: Request) {
     }
 
     if (action === "updateResource") {
+      const existing = await prisma.resource.findFirst({
+        where: { id: data.id, goal: { userId } },
+        select: { goalId: true }
+      });
+      if (!existing) return NextResponse.json({ error: "Resource not found." }, { status: 404 });
+      if (data.milestoneId && !(await milestoneInGoal(existing.goalId, data.milestoneId))) {
+        return NextResponse.json({ error: "Invalid milestone for this goal." }, { status: 400 });
+      }
       await prisma.resource.update({
         where: { id: data.id },
         data: {
-          goalId: data.goalId,
           milestoneId: data.milestoneId || null,
           title: data.title,
           url: data.url,
@@ -234,14 +356,16 @@ export async function POST(request: Request) {
     }
 
     if (action === "deleteResource") {
-      await prisma.resource.delete({ where: { id: data.id } });
+      const deleted = await prisma.resource.deleteMany({ where: { id: data.id, goal: { userId } } });
+      if (deleted.count === 0) return NextResponse.json({ error: "Resource not found." }, { status: 404 });
     }
 
     if (action === "deleteTag") {
-      await prisma.tag.delete({ where: { id: data.id } });
+      const deleted = await prisma.tag.deleteMany({ where: { id: data.id, userId } });
+      if (deleted.count === 0) return NextResponse.json({ error: "Tag not found." }, { status: 404 });
     }
 
-    return NextResponse.json(await getPayload());
+    return NextResponse.json(await getPayload(userId, supabase));
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return NextResponse.json({ error: error.message }, { status: 400 });

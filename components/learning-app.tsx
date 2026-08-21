@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   Archive,
-  BookOpen,
   CalendarDays,
   Check,
   ChevronDown,
@@ -310,14 +309,13 @@ export function LearningApp() {
 
   return (
     <div className="flex min-h-screen bg-[#f7f8fb] text-slate-950 dark:bg-[#101214] dark:text-slate-100">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-200 bg-white/92 px-4 py-5 backdrop-blur dark:border-white/10 dark:bg-[#151719]/92 lg:block">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-200 bg-slate-100/85 px-4 py-5 backdrop-blur dark:border-white/10 dark:bg-[#151719]/92 lg:block">
         <div className="mb-7 flex items-center gap-3 px-2">
-          <div className="grid size-9 place-items-center rounded-lg bg-slate-950 text-white dark:bg-white dark:text-slate-950">
-            <BookOpen size={18} />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/icon.png" alt="Grinding Progress" className="size-9 shrink-0 rounded-full object-cover" />
           <div>
-            <div className="font-semibold">Learning Tracker</div>
-            <div className="text-xs text-slate-500">Personal OS</div>
+            <div className="font-semibold">Grinding Progress</div>
+            <div className="text-xs text-slate-500">Track and document your Learning or Projects Progress</div>
           </div>
         </div>
         <nav className="space-y-1">
@@ -796,7 +794,7 @@ function SettingsView({ profile, mutate }: { profile: Profile; mutate: (action: 
       </div>
       <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
         <div className="text-sm font-medium">Account</div>
-        <p className="mt-1 text-sm text-slate-500">Sign out of your Learning Tracker workspace on this device.</p>
+        <p className="mt-1 text-sm text-slate-500">Sign out of your Grinding Progress workspace on this device.</p>
         <button
           onClick={handleLogout}
           disabled={signingOut}

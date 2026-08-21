@@ -3,7 +3,6 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BookOpen } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -52,11 +51,10 @@ export default function SignupPage() {
     <div className="grid min-h-screen place-items-center bg-[#f7f8fb] px-4 text-slate-950 dark:bg-[#101214] dark:text-slate-100">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
         <div className="mb-6 flex items-center gap-3">
-          <div className="grid size-9 place-items-center rounded-lg bg-slate-950 text-white dark:bg-white dark:text-slate-950">
-            <BookOpen size={18} />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/icon.png" alt="Grinding Progress" className="size-9 shrink-0 rounded-full object-cover" />
           <div>
-            <div className="font-semibold">Learning Tracker</div>
+            <div className="font-semibold">Grinding Progress</div>
             <div className="text-xs text-slate-500">Create your workspace account</div>
           </div>
         </div>

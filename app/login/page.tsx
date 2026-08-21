@@ -30,11 +30,11 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-screen place-items-center bg-[#f7f8fb] px-4 text-slate-950 dark:bg-[#101214] dark:text-slate-100">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
-        <div className="mb-6 flex items-center gap-3">
+        <div className="mb-6 space-y-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/icon.png" alt="Grinding Progress" className="size-9 shrink-0 rounded-full object-cover" />
+          <img src="/brand/icon.png" alt="EIM Academy" className="h-9 w-auto object-contain" />
           <div>
-            <div className="font-semibold">Grinding Progress</div>
+            <div className="font-semibold">Learning Progress</div>
             <div className="text-xs text-slate-500">Sign in to your workspace</div>
           </div>
         </div>

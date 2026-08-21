@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Grinding Progress",
+  title: "Learning Progress",
   description: "Track and document your Learning or Projects Progress"
 };
 

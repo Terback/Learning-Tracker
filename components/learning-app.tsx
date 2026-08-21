@@ -309,13 +309,13 @@ export function LearningApp() {
 
   return (
     <div className="flex min-h-screen bg-[#f7f8fb] text-slate-950 dark:bg-[#101214] dark:text-slate-100">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-200 bg-slate-100/85 px-4 py-5 backdrop-blur dark:border-white/10 dark:bg-[#151719]/92 lg:block">
-        <div className="mb-7 flex items-center gap-3 px-2">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-200 bg-[#f1f2f5] px-4 py-5 dark:border-white/10 dark:bg-[#15171a] lg:block">
+        <div className="mb-7 space-y-3 px-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/icon.png" alt="Grinding Progress" className="size-9 shrink-0 rounded-full object-cover" />
+          <img src="/brand/icon.png" alt="EIM Academy" className="h-8 w-auto object-contain" />
           <div>
-            <div className="font-semibold">Grinding Progress</div>
-            <div className="text-xs text-slate-500">Track and document your Learning or Projects Progress</div>
+            <div className="font-semibold">Learning Progress</div>
+            <div className="text-[11px] leading-snug text-slate-500">Track your learning and project progress.</div>
           </div>
         </div>
         <nav className="space-y-1">
@@ -335,7 +335,7 @@ export function LearningApp() {
       </aside>
 
       <main className="w-full lg:pl-64">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-[#f7f8fb]/88 px-4 py-3 backdrop-blur dark:border-white/10 dark:bg-[#101214]/88 md:px-8">
+        <header className="sticky top-0 z-10 border-b border-slate-200/60 bg-[#f7f8fb]/88 px-4 py-4 backdrop-blur dark:border-white/[0.06] dark:bg-[#101214]/88 md:px-8">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-3">
               <button onClick={() => setGoalModal(true)} className="flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-medium text-white dark:bg-white dark:text-slate-950">
@@ -366,7 +366,7 @@ export function LearningApp() {
         </header>
 
         <div className="px-4 py-6 md:px-8">
-          {view === "dashboard" && <Dashboard stats={stats} goals={visibleGoals} onOpen={(id) => { setSelectedId(id); setView("goals"); }} onEdit={setEditingGoal} />}
+          {view === "dashboard" && <Dashboard stats={stats} goals={visibleGoals} onOpen={(id) => { setSelectedId(id); setView("goals"); }} onEdit={setEditingGoal} onCreateGoal={() => setGoalModal(true)} />}
           {view === "goals" && selectedGoal && <GoalWorkspace goal={selectedGoal} mutate={mutate} onDeleteGoal={async (id) => { await mutate("deleteGoal", { id }, "Goal deleted"); setSelectedId(data.goals.find((goal) => goal.id !== id)?.id || ""); }} />}
           {view === "timeline" && <TimelineView logs={logs} goals={data.goals} mutate={mutate} />}
           {view === "resources" && <ResourcesView resources={resources} goals={data.goals} mutate={mutate} />}
@@ -456,7 +456,19 @@ function AccountMenu({ profile, onOpenSettings }: { profile: Profile; onOpenSett
   );
 }
 
-function Dashboard({ stats, goals, onOpen, onEdit }: { stats: Record<string, string | number>; goals: Goal[]; onOpen: (id: string) => void; onEdit: (goal: Goal) => void }) {
+function Dashboard({
+  stats,
+  goals,
+  onOpen,
+  onEdit,
+  onCreateGoal
+}: {
+  stats: Record<string, string | number>;
+  goals: Goal[];
+  onOpen: (id: string) => void;
+  onEdit: (goal: Goal) => void;
+  onCreateGoal: () => void;
+}) {
   return (
     <section className="space-y-6">
       <div>
@@ -473,7 +485,7 @@ function Dashboard({ stats, goals, onOpen, onEdit }: { stats: Record<string, str
       </div>
       <div className="grid gap-4 xl:grid-cols-3">
         {goals.map((goal) => (
-          <article key={goal.id} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
+          <article key={goal.id} className="rounded-lg border border-slate-200/70 bg-white p-5 shadow-sm dark:border-white/[0.06] dark:bg-white/[0.04]">
             <button onClick={() => onOpen(goal.id)} className="block w-full text-left">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -495,13 +507,25 @@ function Dashboard({ stats, goals, onOpen, onEdit }: { stats: Record<string, str
           </article>
         ))}
       </div>
+      {stats.total === 0 && (
+        <div className="rounded-lg border border-dashed border-slate-200/70 bg-white/60 p-10 text-center dark:border-white/[0.08] dark:bg-white/[0.02]">
+          <p className="font-medium">No progress yet</p>
+          <p className="mt-1 text-sm text-slate-500">Create your first learning goal or add a progress update.</p>
+          <button
+            onClick={onCreateGoal}
+            className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-medium text-white dark:bg-white dark:text-slate-950"
+          >
+            <Plus size={16} /> New Learning Goal
+          </button>
+        </div>
+      )}
     </section>
   );
 }
 
 function Stat({ label, value, compact = false }: { label: string; value: string | number; compact?: boolean }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-white/[0.04]">
+    <div className="rounded-lg border border-slate-200/70 bg-white p-4 dark:border-white/[0.06] dark:bg-white/[0.04]">
       <div className="text-xs uppercase text-slate-400">{label}</div>
       <div className={clsx("mt-2 font-semibold", compact ? "truncate text-sm" : "text-2xl")}>{value}</div>
     </div>
@@ -527,7 +551,7 @@ function GoalWorkspace({ goal, mutate, onDeleteGoal }: { goal: Goal; mutate: (ac
 
   return (
     <section className="space-y-5">
-      <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
+      <div className="rounded-lg border border-slate-200/70 bg-white p-5 dark:border-white/[0.06] dark:bg-white/[0.04]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
             <input value={goal.title} onChange={(event) => mutate("updateGoal", { ...goal, title: event.target.value, startDate: toDateInput(goal.startDate), targetDate: toDateInput(goal.targetDate), tags: tagString(goal.tags) }, "Goal title updated")} className="w-full bg-transparent text-2xl font-semibold outline-none" />
@@ -560,7 +584,7 @@ function GoalWorkspace({ goal, mutate, onDeleteGoal }: { goal: Goal; mutate: (ac
           <Panel title="Roadmap" action={<button onClick={() => setMilestoneModal("new")} className="IconButton"><Plus size={16} /></button>}>
             <div className="space-y-2">
               {goal.milestones.map((milestone) => (
-                <div key={milestone.id} draggable onDragStart={() => setDragId(milestone.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveMilestone(milestone.id)} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-black/10">
+                <div key={milestone.id} draggable onDragStart={() => setDragId(milestone.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveMilestone(milestone.id)} className="rounded-lg border border-slate-200/70 bg-white p-3 dark:border-white/[0.06] dark:bg-black/10">
                   <div className="flex items-start gap-3">
                     <GripVertical className="mt-1 text-slate-300" size={16} />
                     <button onClick={() => mutate("updateMilestone", { ...milestone, status: milestone.status === "COMPLETED" ? "IN_PROGRESS" : "COMPLETED", targetDate: toDateInput(milestone.targetDate), tags: tagString(milestone.tags) }, "Milestone updated")} className="mt-0.5">
@@ -584,7 +608,7 @@ function GoalWorkspace({ goal, mutate, onDeleteGoal }: { goal: Goal; mutate: (ac
           <Panel title="Resources" action={<button onClick={() => setResourceModal("new")} className="IconButton"><Plus size={16} /></button>}>
             <div className="space-y-2">
               {goal.resources.map((resource) => (
-                <div key={resource.id} className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-white/10">
+                <div key={resource.id} className="flex items-start gap-3 rounded-lg border border-slate-200/70 p-3 dark:border-white/[0.06]">
                   <LinkIcon className="mt-1 text-slate-400" size={15} />
                   <button onClick={() => setResourceModal(resource)} className="min-w-0 flex-1 text-left">
                     <div className="truncate text-sm font-medium">{resource.title}</div>
@@ -708,7 +732,7 @@ function ResourcesView({ resources, goals, mutate }: { resources: (Resource & { 
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         {resources.map((resource) => (
-          <button key={resource.id} onClick={() => setEditing(resource)} className="rounded-lg border border-slate-200 bg-white p-4 text-left dark:border-white/10 dark:bg-white/[0.04]">
+          <button key={resource.id} onClick={() => setEditing(resource)} className="rounded-lg border border-slate-200/70 bg-white p-4 text-left dark:border-white/[0.06] dark:bg-white/[0.04]">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-medium">{resource.title}</div>
@@ -771,7 +795,7 @@ function SettingsView({ profile, mutate }: { profile: Profile; mutate: (action: 
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="mt-1 text-sm text-slate-500">Your data is stored in Supabase PostgreSQL through Prisma, scoped privately to your account.</p>
       </div>
-      <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
+      <div className="rounded-lg border border-slate-200/70 bg-white p-5 dark:border-white/[0.06] dark:bg-white/[0.04]">
         <div className="text-sm font-medium">Profile</div>
         <form onSubmit={handleSaveProfile} className="mt-3 space-y-4">
           <TextInput label="Display Name" value={displayName} onChange={setDisplayName} placeholder="Terrence Dai" />
@@ -792,9 +816,9 @@ function SettingsView({ profile, mutate }: { profile: Profile; mutate: (action: 
           </button>
         </form>
       </div>
-      <div className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
+      <div className="rounded-lg border border-slate-200/70 bg-white p-5 dark:border-white/[0.06] dark:bg-white/[0.04]">
         <div className="text-sm font-medium">Account</div>
-        <p className="mt-1 text-sm text-slate-500">Sign out of your Grinding Progress workspace on this device.</p>
+        <p className="mt-1 text-sm text-slate-500">Sign out of your Learning Progress workspace on this device.</p>
         <button
           onClick={handleLogout}
           disabled={signingOut}
@@ -996,7 +1020,7 @@ async function uploadFiles(progressLogId: string, files: File[]) {
 
 function Panel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]">
+    <section className="rounded-lg border border-slate-200/70 bg-white p-5 dark:border-white/[0.06] dark:bg-white/[0.04]">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="font-semibold">{title}</h2>
         {action}

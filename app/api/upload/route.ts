@@ -33,9 +33,11 @@ export async function POST(request: Request) {
   }
 
   const attachments = [];
+  const errors: { fileName: string; error: string }[] = [];
   for (const file of files) {
     if (!allowedTypes.has(file.type)) {
-      return NextResponse.json({ error: `${file.name} is not a supported file type.` }, { status: 400 });
+      errors.push({ fileName: file.name, error: `${file.name} is not a supported file type.` });
+      continue;
     }
 
     const objectPath = buildAttachmentPath(user.id, progressLogId, file.name);
@@ -45,7 +47,8 @@ export async function POST(request: Request) {
       .upload(objectPath, Buffer.from(bytes), { contentType: file.type || "application/octet-stream" });
 
     if (uploadError) {
-      return NextResponse.json({ error: `Failed to upload ${file.name}: ${uploadError.message}` }, { status: 500 });
+      errors.push({ fileName: file.name, error: `Failed to upload ${file.name}: ${uploadError.message}` });
+      continue;
     }
 
     attachments.push(
@@ -60,5 +63,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ attachments });
+  return NextResponse.json({ attachments, errors });
 }

@@ -897,14 +897,30 @@ function LogModal({ goal, log, mutate, onClose }: { goal: Goal; log?: ProgressLo
     tags: log ? tagString(log.tags) : ""
   });
   const [files, setFiles] = useState<File[]>([]);
+  const [savedId, setSavedId] = useState<string | undefined>(log?.id);
+  const [uploadError, setUploadError] = useState("");
 
   async function save() {
-    const action = log ? "updateProgressLog" : "createProgressLog";
-    const result = await mutate(action, log ? { ...form, id: log.id, goalId: goal.id } : { ...form, goalId: goal.id }, log ? "Progress saved" : "Progress added");
-    const progressLogId = log?.id || result.createdId;
+    setUploadError("");
+    const isNew = !savedId;
+    const result = await mutate(
+      isNew ? "createProgressLog" : "updateProgressLog",
+      isNew ? { ...form, goalId: goal.id } : { ...form, id: savedId, goalId: goal.id },
+      isNew ? "Progress added" : "Progress saved"
+    );
+    const progressLogId = savedId || result.createdId;
+    if (!savedId) setSavedId(progressLogId);
+
     if (files.length > 0 && progressLogId) {
-      await uploadFiles(progressLogId, files);
-      await mutate("updateProgressLog", { ...form, id: progressLogId, goalId: goal.id }, "Image uploaded");
+      const { remaining, failedNames, uploadedAny } = await uploadPendingSequentially(progressLogId, files);
+      setFiles(remaining);
+      if (uploadedAny) {
+        await mutate("updateProgressLog", { ...form, id: progressLogId, goalId: goal.id }, failedNames.length ? "Some attachments uploaded" : "Attachments uploaded");
+      }
+      if (failedNames.length > 0) {
+        setUploadError(`Failed to upload: ${failedNames.join(", ")}. Fix and click Save to retry.`);
+        return;
+      }
     }
     onClose();
   }
@@ -927,6 +943,7 @@ function LogModal({ goal, log, mutate, onClose }: { goal: Goal; log?: ProgressLo
         <TextInput label="Next step" value={form.nextStep} onChange={(nextStep) => setForm({ ...form, nextStep })} />
         <TextInput label="Tags" value={form.tags} onChange={(tags) => setForm({ ...form, tags })} />
         <AttachmentDropzone files={files} setFiles={setFiles} />
+        {uploadError && <p className="text-xs text-rose-600 dark:text-rose-400">{uploadError}</p>}
       </FormShell>
     </Modal>
   );
@@ -937,12 +954,30 @@ function QuickUpdateModal({ goals, mutate, onClose }: { goals: Goal[]; mutate: (
   const goal = goals.find((item) => item.id === goalId) || goals[0];
   const [form, setForm] = useState(emptyLog);
   const [files, setFiles] = useState<File[]>([]);
+  const [savedId, setSavedId] = useState<string | undefined>(undefined);
+  const [uploadError, setUploadError] = useState("");
 
   async function save() {
-    const result = await mutate("createProgressLog", { ...form, title: form.title || "Quick progress update", goalId }, "Quick update saved");
-    if (files.length > 0 && result.createdId) {
-      await uploadFiles(result.createdId, files);
-      await mutate("updateProgressLog", { ...form, id: result.createdId, goalId, title: form.title || "Quick progress update" }, "Attachment uploaded");
+    setUploadError("");
+    const isNew = !savedId;
+    const result = await mutate(
+      isNew ? "createProgressLog" : "updateProgressLog",
+      isNew ? { ...form, title: form.title || "Quick progress update", goalId } : { ...form, id: savedId, title: form.title || "Quick progress update", goalId },
+      isNew ? "Quick update saved" : "Progress saved"
+    );
+    const progressLogId = savedId || result.createdId;
+    if (!savedId) setSavedId(progressLogId);
+
+    if (files.length > 0 && progressLogId) {
+      const { remaining, failedNames, uploadedAny } = await uploadPendingSequentially(progressLogId, files);
+      setFiles(remaining);
+      if (uploadedAny) {
+        await mutate("updateProgressLog", { ...form, id: progressLogId, goalId, title: form.title || "Quick progress update" }, failedNames.length ? "Some attachments uploaded" : "Attachments uploaded");
+      }
+      if (failedNames.length > 0) {
+        setUploadError(`Failed to upload: ${failedNames.join(", ")}. Fix and click Save to retry.`);
+        return;
+      }
     }
     onClose();
   }
@@ -956,6 +991,7 @@ function QuickUpdateModal({ goals, mutate, onClose }: { goals: Goal[]; mutate: (
         <TextArea label="Notes" value={form.content} onChange={(content) => setForm({ ...form, content })} rows={4} />
         <DateInput label="Date" value={form.date} onChange={(date) => setForm({ ...form, date })} />
         <AttachmentDropzone files={files} setFiles={setFiles} />
+        {uploadError && <p className="text-xs text-rose-600 dark:text-rose-400">{uploadError}</p>}
       </FormShell>
     </Modal>
   );
@@ -1015,7 +1051,27 @@ async function uploadFiles(progressLogId: string, files: File[]) {
   form.append("progressLogId", progressLogId);
   files.forEach((file) => form.append("files", file));
   const response = await fetch("/api/upload", { method: "POST", body: form });
-  if (!response.ok) throw new Error("Upload failed.");
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "Upload failed.");
+  if (payload.errors?.length) throw new Error(payload.errors.map((item: { error: string }) => item.error).join("; "));
+  return payload.attachments as Attachment[];
+}
+
+// Uploads one file per request so a failure on one attachment never blocks or discards the rest.
+async function uploadPendingSequentially(progressLogId: string, files: File[]) {
+  const remaining: File[] = [];
+  const failedNames: string[] = [];
+  let uploadedAny = false;
+  for (const file of files) {
+    try {
+      await uploadFiles(progressLogId, [file]);
+      uploadedAny = true;
+    } catch {
+      remaining.push(file);
+      failedNames.push(file.name);
+    }
+  }
+  return { remaining, failedNames, uploadedAny };
 }
 
 function Panel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {

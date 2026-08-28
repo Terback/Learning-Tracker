@@ -60,14 +60,19 @@ async function resolveAttachmentUrls<T extends { fileUrl: string | null; filePat
   }));
 }
 
+// PERF-TEMP: diagnostic timing for the GET /api/data slowdown investigation. Remove once resolved.
 async function getPayload(userId: string, email: string, supabase: SupabaseClient) {
+  const t0 = performance.now();
   const goals = await prisma.goal.findMany({
     where: { userId },
     include: includeAll,
     orderBy: { updatedAt: "desc" }
   });
+  const t1 = performance.now();
   const tags = await prisma.tag.findMany({ where: { userId }, orderBy: { name: "asc" } });
+  const t2 = performance.now();
   const profileRow = await prisma.userProfile.findUnique({ where: { userId } });
+  const t3 = performance.now();
 
   const goalsWithUrls = await Promise.all(
     goals.map(async (goal) => ({
@@ -79,6 +84,11 @@ async function getPayload(userId: string, email: string, supabase: SupabaseClien
         }))
       )
     }))
+  );
+  const t4 = performance.now();
+
+  console.log(
+    `[perf-temp] getPayload: goalQuery=${(t1 - t0).toFixed(1)}ms tagQuery=${(t2 - t1).toFixed(1)}ms profileQuery=${(t3 - t2).toFixed(1)}ms attachmentUrlResolution=${(t4 - t3).toFixed(1)}ms getPayloadTotal=${(t4 - t0).toFixed(1)}ms`
   );
 
   return {
@@ -105,9 +115,23 @@ async function removeStorageObjects(supabase: SupabaseClient, paths: string[]) {
 }
 
 export async function GET() {
+  // PERF-TEMP: diagnostic timing for the GET /api/data slowdown investigation. Remove once resolved.
+  const tStart = performance.now();
   const { supabase, user } = await getAuthedSupabase();
+  const tAuth = performance.now();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  return NextResponse.json(await getPayload(user.id, user.email ?? "", supabase));
+
+  const payload = await getPayload(user.id, user.email ?? "", supabase);
+  const tPayload = performance.now();
+
+  const response = NextResponse.json(payload);
+  const tSerialize = performance.now();
+
+  console.log(
+    `[perf-temp] GET /api/data: auth=${(tAuth - tStart).toFixed(1)}ms getPayload=${(tPayload - tAuth).toFixed(1)}ms responseSerialize=${(tSerialize - tPayload).toFixed(1)}ms total=${(tSerialize - tStart).toFixed(1)}ms`
+  );
+
+  return response;
 }
 
 const knownActions = new Set([

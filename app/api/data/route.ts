@@ -39,17 +39,23 @@ function normalizeList(value: unknown) {
     .filter(Boolean);
 }
 
+// PERF-TEMP: diagnostic-only out-param for the GET /api/data slowdown investigation. Remove once resolved.
+type PerfStats = { dbMs: number; signedUrlMs: number; signedUrlCallDurations: number[] };
+
 // Attachments created before the Supabase Storage migration only have `fileUrl` (a local
 // public/uploads path) and serve as-is. Attachments created after only have `filePath` (a
 // Supabase Storage object key) and need a signed URL generated per request.
 async function resolveAttachmentUrls<T extends { fileUrl: string | null; filePath: string | null }>(
   attachments: T[],
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  callDurations?: number[] // PERF-TEMP: each createSignedUrls call's duration (ms), remove once resolved
 ) {
   const paths = attachments.filter((a) => a.filePath).map((a) => a.filePath as string);
   const signedUrlByPath = new Map<string, string>();
   if (paths.length > 0) {
+    const callStart = performance.now();
     const { data } = await supabase.storage.from(ATTACHMENTS_BUCKET).createSignedUrls(paths, SIGNED_URL_EXPIRES_IN);
+    callDurations?.push(performance.now() - callStart);
     for (const entry of data ?? []) {
       if (entry.signedUrl && entry.path) signedUrlByPath.set(entry.path, entry.signedUrl);
     }
@@ -60,36 +66,30 @@ async function resolveAttachmentUrls<T extends { fileUrl: string | null; filePat
   }));
 }
 
-// PERF-TEMP: diagnostic timing for the GET /api/data slowdown investigation. Remove once resolved.
-async function getPayload(userId: string, email: string, supabase: SupabaseClient) {
-  const t0 = performance.now();
+async function getPayload(userId: string, email: string, supabase: SupabaseClient, perf?: PerfStats) {
+  const dbStart = performance.now();
   const goals = await prisma.goal.findMany({
     where: { userId },
     include: includeAll,
     orderBy: { updatedAt: "desc" }
   });
-  const t1 = performance.now();
   const tags = await prisma.tag.findMany({ where: { userId }, orderBy: { name: "asc" } });
-  const t2 = performance.now();
   const profileRow = await prisma.userProfile.findUnique({ where: { userId } });
-  const t3 = performance.now();
+  if (perf) perf.dbMs = performance.now() - dbStart;
 
+  const signedUrlStart = performance.now();
   const goalsWithUrls = await Promise.all(
     goals.map(async (goal) => ({
       ...goal,
       progressLog: await Promise.all(
         goal.progressLog.map(async (log) => ({
           ...log,
-          attachments: await resolveAttachmentUrls(log.attachments, supabase)
+          attachments: await resolveAttachmentUrls(log.attachments, supabase, perf?.signedUrlCallDurations)
         }))
       )
     }))
   );
-  const t4 = performance.now();
-
-  console.log(
-    `[perf-temp] getPayload: goalQuery=${(t1 - t0).toFixed(1)}ms tagQuery=${(t2 - t1).toFixed(1)}ms profileQuery=${(t3 - t2).toFixed(1)}ms attachmentUrlResolution=${(t4 - t3).toFixed(1)}ms getPayloadTotal=${(t4 - t0).toFixed(1)}ms`
-  );
+  if (perf) perf.signedUrlMs = performance.now() - signedUrlStart;
 
   return {
     goals: goalsWithUrls,
@@ -115,23 +115,40 @@ async function removeStorageObjects(supabase: SupabaseClient, paths: string[]) {
 }
 
 export async function GET() {
-  // PERF-TEMP: diagnostic timing for the GET /api/data slowdown investigation. Remove once resolved.
+  // PERF-TEMP: diagnostic-only instrumentation for the GET /api/data slowdown investigation. Remove once resolved.
+  // try/finally guarantees the summary line logs even if a phase throws.
   const tStart = performance.now();
-  const { supabase, user } = await getAuthedSupabase();
-  const tAuth = performance.now();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let authMs = 0;
+  let serializeMs = 0;
+  const perf: PerfStats = { dbMs: 0, signedUrlMs: 0, signedUrlCallDurations: [] };
 
-  const payload = await getPayload(user.id, user.email ?? "", supabase);
-  const tPayload = performance.now();
+  try {
+    const authStart = performance.now();
+    const { supabase, user } = await getAuthedSupabase();
+    authMs = performance.now() - authStart;
 
-  const response = NextResponse.json(payload);
-  const tSerialize = performance.now();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  console.log(
-    `[perf-temp] GET /api/data: auth=${(tAuth - tStart).toFixed(1)}ms getPayload=${(tPayload - tAuth).toFixed(1)}ms responseSerialize=${(tSerialize - tPayload).toFixed(1)}ms total=${(tSerialize - tStart).toFixed(1)}ms`
-  );
+    const payload = await getPayload(user.id, user.email ?? "", supabase, perf);
 
-  return response;
+    const serializeStart = performance.now();
+    const response = NextResponse.json(payload);
+    serializeMs = performance.now() - serializeStart;
+    return response;
+  } finally {
+    const totalMs = performance.now() - tStart;
+    const calls = perf.signedUrlCallDurations;
+    const min = calls.length ? Math.min(...calls) : 0;
+    const max = calls.length ? Math.max(...calls) : 0;
+    const sum = calls.reduce((a, b) => a + b, 0);
+
+    console.log(
+      `[perf-api-data] auth=${authMs.toFixed(1)}ms db=${perf.dbMs.toFixed(1)}ms signedUrls=${perf.signedUrlMs.toFixed(1)}ms serialize=${serializeMs.toFixed(1)}ms total=${totalMs.toFixed(1)}ms`
+    );
+    console.log(
+      `[perf-api-data] signedUrlCalls count=${calls.length} min=${min.toFixed(1)}ms max=${max.toFixed(1)}ms sumOfCallDurations=${sum.toFixed(1)}ms wallClockPhase=${perf.signedUrlMs.toFixed(1)}ms`
+    );
+  }
 }
 
 const knownActions = new Set([
